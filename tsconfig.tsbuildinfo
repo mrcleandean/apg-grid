@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/productgrid/productcard.tsx","./src/productgrid/productgrid.tsx","./src/productgrid/productgridcell.tsx","./src/productgrid/productgridheader.tsx","./src/productgrid/productgridrow.tsx","./src/productgrid/productgridtypes.ts","./vite.config.ts"],"version":"5.8.3"}
