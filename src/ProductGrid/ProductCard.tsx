@@ -3,29 +3,29 @@ import { Card, CardContent, Avatar, Button, Stack, Box } from "@mui/material";
 import { Edit, Delete, Share } from "@mui/icons-material";
 
 export const ProductCard: React.FC = () => {
-  const handleContainerAction = () => {
-    console.log("Container action triggered");
+  const handleCardAction = () => {
+    console.log("Card action triggered");
   };
 
-  const handleEdit = (e: React.MouseEvent) => {
+  const handleEditAction = (e: React.MouseEvent) => {
     e.stopPropagation();
     console.log("Edit button clicked");
   };
 
-  const handleDelete = (e: React.MouseEvent) => {
+  const handleDeleteAction = (e: React.MouseEvent) => {
     e.stopPropagation();
     console.log("Delete button clicked");
   };
 
-  const handleShare = (e: React.MouseEvent) => {
+  const handleShareAction = (e: React.MouseEvent) => {
     e.stopPropagation();
     console.log("Share button clicked");
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleCardKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      handleContainerAction();
+      handleCardAction();
     }
   };
 
@@ -34,8 +34,8 @@ export const ProductCard: React.FC = () => {
       component="div"
       role="button"
       aria-label="Product actions card"
-      onClick={handleContainerAction}
-      onKeyDown={handleKeyDown}
+      onClick={handleCardAction}
+      onKeyDown={handleCardKeyDown}
       sx={{
         cursor: "pointer",
         transition: "all 0.2s ease-in-out",
@@ -57,12 +57,12 @@ export const ProductCard: React.FC = () => {
             alt="User avatar"
             sx={{ width: 32, height: 32 }}
           />
-          <Stack direction="row" spacing={1}>
+          <Stack direction="column" spacing={1}>
             <Button
               variant="contained"
               size="small"
               startIcon={<Edit />}
-              onClick={handleEdit}
+              onClick={handleEditAction}
               sx={{ minWidth: "auto", px: 1 }}
               aria-label="Edit item"
             >
@@ -73,7 +73,7 @@ export const ProductCard: React.FC = () => {
               color="error"
               size="small"
               startIcon={<Delete />}
-              onClick={handleDelete}
+              onClick={handleDeleteAction}
               sx={{ minWidth: "auto", px: 1 }}
               aria-label="Delete item"
             >
@@ -84,7 +84,7 @@ export const ProductCard: React.FC = () => {
               color="success"
               size="small"
               startIcon={<Share />}
-              onClick={handleShare}
+              onClick={handleShareAction}
               sx={{ minWidth: "auto", px: 1 }}
               aria-label="Share item"
             >

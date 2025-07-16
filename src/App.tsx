@@ -1,7 +1,14 @@
 import ProductGrid from "@/ProductGrid/ProductGrid";
 import "./App.css";
+import { useState } from "react";
 
 function App() {
+  const [columnCount, setColumnCount] = useState(4);
+
+  const handleColumnCountChange = () => {
+    setColumnCount((prev) => (prev >= 5 ? 1 : prev + 1));
+  };
+
   try {
     return (
       <div
@@ -29,7 +36,23 @@ function App() {
           Focusable Element Before Grid
         </button>
 
-        <ProductGrid />
+        <button
+          onClick={handleColumnCountChange}
+          style={{
+            padding: "10px 20px",
+            marginBottom: "20px",
+            marginLeft: "10px",
+            background: "#9c27b0",
+            color: "white",
+            border: "none",
+            borderRadius: "4px",
+            cursor: "pointer",
+          }}
+        >
+          Columns: {columnCount}
+        </button>
+
+        <ProductGrid columnCount={columnCount} />
 
         <button
           style={{

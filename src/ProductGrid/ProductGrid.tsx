@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import type { KeyboardEvent } from "react";
 import {
   TableContainer,
@@ -7,55 +13,211 @@ import {
   Paper,
   Box,
   Typography,
+  Button,
 } from "@mui/material";
-import { ProductGridHeader } from "@/ProductGrid/ProductGridHeader";
+import { useInView } from "react-intersection-observer";
 import { ProductGridRow } from "@/ProductGrid/ProductGridRow";
-import { columns, initialRows } from "@/ProductGrid/productGridTypes";
+import { initialRows } from "@/ProductGrid/productGridTypes";
 import type {
   RowData,
   FocusedCell,
-  InnerModeCell,
+  ProductCardModeCell,
 } from "@/ProductGrid/productGridTypes";
 
-const ProductGrid: React.FC = () => {
-  const [rows] = useState<RowData[]>(initialRows);
-  const [focused, setFocused] = useState<FocusedCell | null>(null); // Start with no focused cell
-  const [innerMode, setInnerMode] = useState<InnerModeCell>(null);
+type ProductGridProps = {
+  columnCount: number;
+};
 
-  // Memoized proxy refs creation
-  const proxyRefs = useRef<Array<Array<React.RefObject<HTMLDivElement>>>>([]);
+const ProductGrid: React.FC<ProductGridProps> = ({ columnCount }) => {
+  const [rows, setRows] = useState<RowData[]>(initialRows);
+  const [focusedCell, setFocusedCell] = useState<FocusedCell | null>(null);
+  const [isInProductCardMode, setIsInProductCardMode] =
+    useState<ProductCardModeCell>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Initialize proxyRefs immediately
-  if (proxyRefs.current.length !== rows.length) {
-    proxyRefs.current = rows.map((_, rowIdx) =>
-      columns.map(
-        (_, colIdx) =>
-          proxyRefs.current[rowIdx]?.[colIdx] ||
-          React.createRef<HTMLDivElement>()
-      )
-    );
-  }
+  // Refs for infinite loading and back to top
+  const { ref: lastRowRef, inView: isLastRowVisible } = useInView({
+    threshold: 1.0,
+    rootMargin: "0px",
+  });
 
-  // Focus management
+  const { ref: firstRowRef, inView: isFirstRowVisible } = useInView({
+    threshold: 1.0,
+    rootMargin: "0px",
+  });
+
+  // Ref to store grid cell references for focus management
+  const gridCellRefs = useRef<Array<Array<React.RefObject<HTMLDivElement>>>>(
+    []
+  );
+
+  // Initialize grid cell refs
+  const initializeGridCellRefs = () => {
+    if (gridCellRefs.current.length !== rows.length) {
+      gridCellRefs.current = rows.map((_, rowIndex) =>
+        Array.from(
+          { length: columnCount },
+          (_, colIdx) =>
+            gridCellRefs.current[rowIndex]?.[colIdx] ||
+            React.createRef<HTMLDivElement>()
+        )
+      );
+    }
+  };
+
+  // Initialize refs on component mount and when rows change
+  initializeGridCellRefs();
+
+  // Memoized grid dimensions for better performance
+  const gridDimensions = useMemo(
+    () => ({
+      totalRows: rows.length,
+      totalCols: columnCount,
+      lastRowIndex: rows.length - 1,
+      lastColIndex: columnCount - 1,
+    }),
+    [rows.length, columnCount]
+  );
+
+  // Memoized boolean flags for cleaner logic
+  const gridState = useMemo(
+    () => ({
+      hasFocusedCell: focusedCell !== null,
+      isInProductCardMode: isInProductCardMode !== null,
+      shouldShowGridFocus: focusedCell !== null && isInProductCardMode === null,
+    }),
+    [focusedCell, isInProductCardMode]
+  );
+
+  // Infinite loading effect
   useEffect(() => {
-    if (focused && !innerMode) {
-      // Only focus grid cell when not in inner mode
-      const proxy = proxyRefs.current[focused.row]?.[focused.col]?.current;
-      if (proxy) {
-        proxy.focus();
+    if (isLastRowVisible && !isLoading) {
+      setIsLoading(true);
+
+      // Simulate loading delay
+      setTimeout(() => {
+        const newRows = Array.from({ length: 3 }, (_, index) => ({
+          id: rows.length + index + 1,
+          name: `Item ${rows.length + index + 1}`,
+          value: (rows.length + index + 1) * 10,
+          description: `Desc ${rows.length + index + 1}`,
+        }));
+
+        setRows((prev) => [...prev, ...newRows]);
+        setIsLoading(false);
+      }, 500);
+    }
+  }, [isLastRowVisible, isLoading, rows.length]);
+
+  // Back to top functionality
+  const handleBackToTop = useCallback(() => {
+    // Scroll to top and focus first cell
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => {
+      setFocusedCell({ row: 0, col: 0 });
+    }, 300);
+  }, []);
+
+  // Check if back to top button should be shown
+  const shouldShowBackToTop = !isFirstRowVisible;
+  const isElementAfterGrid = useCallback(
+    (element: HTMLElement, grid: EventTarget): boolean => {
+      const gridRect = (grid as HTMLElement).getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      return (
+        elementRect.top > gridRect.bottom ||
+        (elementRect.top === gridRect.bottom &&
+          elementRect.left >= gridRect.left)
+      );
+    },
+    []
+  );
+
+  // Memoized helper function to find focusable elements
+  const findNextFocusableElement = useCallback(
+    (gridTable: HTMLElement, shouldGoBackward: boolean): HTMLElement | null => {
+      const focusableElements = Array.from(
+        document.querySelectorAll(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => {
+        const computedStyle = getComputedStyle(el as Element);
+        return (
+          computedStyle.display !== "none" &&
+          computedStyle.visibility !== "hidden" &&
+          (el as HTMLElement).offsetParent !== null
+        );
+      }) as HTMLElement[];
+
+      let targetElement: HTMLElement | null = null;
+      const gridRect = gridTable.getBoundingClientRect();
+
+      if (shouldGoBackward) {
+        // Shift+Tab: find previous focusable element before grid
+        for (let i = focusableElements.length - 1; i >= 0; i--) {
+          const rect = focusableElements[i].getBoundingClientRect();
+          if (
+            rect.top < gridRect.top ||
+            (rect.top === gridRect.top && rect.left < gridRect.left)
+          ) {
+            targetElement = focusableElements[i];
+            break;
+          }
+        }
+      } else {
+        // Tab: check if back-to-top button exists and is visible
+        if (shouldShowBackToTop) {
+          const backToTopButton = document.querySelector(
+            '[data-testid="back-to-top-btn"]'
+          ) as HTMLElement;
+          if (backToTopButton) {
+            targetElement = backToTopButton;
+          }
+        }
+
+        // If no back-to-top button, find next focusable element after grid
+        if (!targetElement) {
+          for (let i = 0; i < focusableElements.length; i++) {
+            const rect = focusableElements[i].getBoundingClientRect();
+            if (
+              rect.top > gridRect.bottom ||
+              (rect.top === gridRect.bottom && rect.left >= gridRect.left)
+            ) {
+              targetElement = focusableElements[i];
+              break;
+            }
+          }
+        }
+      }
+
+      return targetElement;
+    },
+    [shouldShowBackToTop]
+  );
+
+  // Focus management - focus grid cell when not in ProductCard mode
+  useEffect(() => {
+    if (gridState.shouldShowGridFocus && focusedCell) {
+      const gridCellProxy =
+        gridCellRefs.current[focusedCell.row]?.[focusedCell.col]?.current;
+      if (gridCellProxy) {
+        gridCellProxy.focus();
       }
     }
-  }, [focused, innerMode]);
+  }, [focusedCell, gridState.shouldShowGridFocus]);
 
+  // ProductCard focus management - focus ProductCard when entering ProductCard mode
   useEffect(() => {
-    if (innerMode) {
-      // Clear grid focus when entering inner mode
-      setFocused(null);
+    if (gridState.isInProductCardMode && isInProductCardMode) {
+      // Clear grid focus when entering ProductCard mode
+      setFocusedCell(null);
 
-      const proxy = proxyRefs.current[innerMode.row]?.[innerMode.col]?.current;
-      if (proxy) {
+      const gridCellProxy =
+        gridCellRefs.current[isInProductCardMode.row]?.[isInProductCardMode.col]
+          ?.current;
+      if (gridCellProxy) {
         // Find the ProductCard (Card component) within the proxy
-        const productCard = proxy.querySelector(
+        const productCard = gridCellProxy.querySelector(
           '[role="button"]'
         ) as HTMLElement;
         if (productCard) {
@@ -64,34 +226,39 @@ const ProductGrid: React.FC = () => {
         }
       }
     }
-  }, [innerMode]);
+  }, [isInProductCardMode, gridState.isInProductCardMode]);
 
   const handleGridKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTableElement>) => {
       if (event.defaultPrevented) return;
 
       const { key, shiftKey, ctrlKey, metaKey } = event;
-      const isGridNavigationMode = !innerMode;
-      const current = isGridNavigationMode ? focused : innerMode;
-      if (!current) return;
+      const isInGridNavigationMode = !isInProductCardMode;
+      const currentCell = isInGridNavigationMode
+        ? focusedCell
+        : isInProductCardMode;
+      if (!currentCell) return;
 
-      const { row: currentRow, col: currentCol } = current;
+      const { row: currentRow, col: currentCol } = currentCell;
 
-      // Handle inner mode (ProductCard)
-      if (innerMode) {
-        const proxy = proxyRefs.current[currentRow][currentCol].current;
-        if (!proxy) return;
+      // Handle ProductCard mode navigation
+      if (isInProductCardMode) {
+        const gridCellProxy =
+          gridCellRefs.current[currentRow][currentCol].current;
+        if (!gridCellProxy) return;
 
-        const productCard = proxy.querySelector(
+        const productCard = gridCellProxy.querySelector(
           '[role="button"]'
         ) as HTMLElement;
         const buttons = Array.from(
-          proxy.querySelectorAll("button")
+          gridCellProxy.querySelectorAll("button")
         ) as HTMLButtonElement[];
 
         // Include the ProductCard container in focusable elements
-        const focusables = productCard ? [productCard, ...buttons] : buttons;
-        const activeIdx = focusables.indexOf(
+        const focusableElements = productCard
+          ? [productCard, ...buttons]
+          : buttons;
+        const activeElementIndex = focusableElements.indexOf(
           document.activeElement as HTMLElement
         );
 
@@ -100,18 +267,19 @@ const ProductGrid: React.FC = () => {
             event.preventDefault();
             // Return focus to the grid cell
             const cellPosition = { row: currentRow, col: currentCol };
-            setInnerMode(null);
-            setFocused(cellPosition);
+            setIsInProductCardMode(null);
+            setFocusedCell(cellPosition);
             break;
           }
           case "Tab":
             event.preventDefault();
             // Loop focus within ProductCard (container + buttons)
-            if (focusables.length > 0) {
-              const nextIdx = shiftKey
-                ? (activeIdx - 1 + focusables.length) % focusables.length
-                : (activeIdx + 1) % focusables.length;
-              focusables[nextIdx].focus();
+            if (focusableElements.length > 0) {
+              const nextElementIndex = shiftKey
+                ? (activeElementIndex - 1 + focusableElements.length) %
+                  focusableElements.length
+                : (activeElementIndex + 1) % focusableElements.length;
+              focusableElements[nextElementIndex].focus();
             }
             break;
         }
@@ -119,160 +287,139 @@ const ProductGrid: React.FC = () => {
       }
 
       // Handle grid navigation mode
-      if (isGridNavigationMode && focused) {
+      if (isInGridNavigationMode && focusedCell) {
         switch (key) {
           case "ArrowUp":
             event.preventDefault();
             if (currentRow > 0) {
-              setFocused({ row: currentRow - 1, col: currentCol });
+              setFocusedCell({ row: currentRow - 1, col: currentCol });
             }
             break;
           case "ArrowDown":
             event.preventDefault();
-            if (currentRow < rows.length - 1) {
-              setFocused({ row: currentRow + 1, col: currentCol });
+            if (currentRow < gridDimensions.lastRowIndex) {
+              setFocusedCell({ row: currentRow + 1, col: currentCol });
             }
             break;
           case "ArrowLeft":
             event.preventDefault();
             if (currentCol > 0) {
-              setFocused({ row: currentRow, col: currentCol - 1 });
+              setFocusedCell({ row: currentRow, col: currentCol - 1 });
             }
             break;
           case "ArrowRight":
             event.preventDefault();
-            if (currentCol < columns.length - 1) {
-              setFocused({ row: currentRow, col: currentCol + 1 });
+            if (currentCol < gridDimensions.lastColIndex) {
+              setFocusedCell({ row: currentRow, col: currentCol + 1 });
             }
             break;
           case "Home":
             event.preventDefault();
             if (ctrlKey || metaKey) {
               // Ctrl + Home: first cell in first row
-              setFocused({ row: 0, col: 0 });
+              setFocusedCell({ row: 0, col: 0 });
             } else {
               // Home: first cell in current row
-              setFocused({ row: currentRow, col: 0 });
+              setFocusedCell({ row: currentRow, col: 0 });
             }
             break;
           case "End":
             event.preventDefault();
             if (ctrlKey || metaKey) {
               // Ctrl + End: last cell in last row
-              setFocused({ row: rows.length - 1, col: columns.length - 1 });
+              setFocusedCell({
+                row: gridDimensions.lastRowIndex,
+                col: gridDimensions.lastColIndex,
+              });
             } else {
               // End: last cell in current row
-              setFocused({ row: currentRow, col: columns.length - 1 });
+              setFocusedCell({
+                row: currentRow,
+                col: gridDimensions.lastColIndex,
+              });
             }
             break;
           case "Enter":
             event.preventDefault();
-            // Enter: focus the inner ProductCard
-            setInnerMode({ row: currentRow, col: currentCol });
+            // Enter: focus the ProductCard
+            setIsInProductCardMode({ row: currentRow, col: currentCol });
             break;
           case "Tab": {
             event.preventDefault();
-            setFocused(null);
+            setFocusedCell(null);
 
-            // Simple approach: find focusable elements and move focus
-            const focusableElements = Array.from(
-              document.querySelectorAll(
-                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-              )
-            ).filter((el) => {
-              const computedStyle = getComputedStyle(el as Element);
-              return (
-                computedStyle.display !== "none" &&
-                computedStyle.visibility !== "hidden" &&
-                (el as HTMLElement).offsetParent !== null
-              );
-            }) as HTMLElement[];
-
-            // Find current grid table
-            const gridTable = event.currentTarget;
-            let targetElement: HTMLElement | null = null;
-
-            if (shiftKey) {
-              // Shift+Tab: find previous focusable element before grid
-              for (let i = focusableElements.length - 1; i >= 0; i--) {
-                const rect = focusableElements[i].getBoundingClientRect();
-                const gridRect = gridTable.getBoundingClientRect();
-                if (
-                  rect.top < gridRect.top ||
-                  (rect.top === gridRect.top && rect.left < gridRect.left)
-                ) {
-                  targetElement = focusableElements[i];
-                  break;
-                }
-              }
-            } else {
-              // Tab: find next focusable element after grid
-              for (let i = 0; i < focusableElements.length; i++) {
-                const rect = focusableElements[i].getBoundingClientRect();
-                const gridRect = gridTable.getBoundingClientRect();
-                if (
-                  rect.top > gridRect.bottom ||
-                  (rect.top === gridRect.bottom && rect.left >= gridRect.left)
-                ) {
-                  targetElement = focusableElements[i];
-                  break;
-                }
-              }
-            }
-
+            const targetElement = findNextFocusableElement(
+              event.currentTarget,
+              shiftKey
+            );
             if (targetElement) {
-              setTimeout(() => targetElement!.focus(), 0);
+              setTimeout(() => targetElement.focus(), 0);
             }
             break;
           }
         }
       }
     },
-    [innerMode, focused, rows.length]
+    [isInProductCardMode, focusedCell, gridDimensions, findNextFocusableElement]
   );
 
   // Handle when grid container receives focus (Tab into grid)
   const handleGridFocus = useCallback(
     (event: React.FocusEvent) => {
-      // Only set focus if we're not already in inner mode and no cell is focused
-      if (!focused && !innerMode) {
+      // Only set focus if we're not already in ProductCard mode and no cell is focused
+      if (!gridState.hasFocusedCell && !gridState.isInProductCardMode) {
         // Check if this was a Shift+Tab (coming from after the grid)
-        // We can detect this by checking if the related target comes after the grid
         const relatedTarget = event.relatedTarget as HTMLElement;
-        if (relatedTarget) {
-          const gridRect = event.currentTarget.getBoundingClientRect();
-          const targetRect = relatedTarget.getBoundingClientRect();
+        const shouldEnterAtLastCell =
+          relatedTarget &&
+          isElementAfterGrid(relatedTarget, event.currentTarget);
 
-          // If the related target is positioned after the grid (Shift+Tab scenario)
-          if (
-            targetRect.top > gridRect.bottom ||
-            (targetRect.top === gridRect.bottom &&
-              targetRect.left >= gridRect.left)
-          ) {
-            // Enter at last cell for APG compliance
-            setFocused({ row: rows.length - 1, col: columns.length - 1 });
-          } else {
-            // Normal Tab entry - enter at first cell
-            setFocused({ row: 0, col: 0 });
-          }
+        if (shouldEnterAtLastCell) {
+          // Enter at last cell for APG compliance
+          setFocusedCell({
+            row: gridDimensions.lastRowIndex,
+            col: gridDimensions.lastColIndex,
+          });
         } else {
-          // No related target, default to first cell
-          setFocused({ row: 0, col: 0 });
+          // Normal Tab entry - enter at first cell
+          setFocusedCell({ row: 0, col: 0 });
+
+          // Announce keyboard instructions when entering from before the grid
+          const announcement = document.createElement("div");
+          announcement.setAttribute("aria-live", "polite");
+          announcement.setAttribute("aria-atomic", "true");
+          announcement.className = "sr-only";
+          announcement.textContent =
+            "Entered product grid. Use arrow keys to navigate, Enter to access product actions, Escape to exit actions, Tab to exit grid.";
+          document.body.appendChild(announcement);
+
+          // Clean up announcement after it's read
+          setTimeout(() => {
+            document.body.removeChild(announcement);
+          }, 3000);
         }
       }
     },
-    [focused, innerMode, rows.length]
+    [
+      gridState.hasFocusedCell,
+      gridState.isInProductCardMode,
+      gridDimensions,
+      isElementAfterGrid,
+    ]
   );
 
   // Handle when grid container loses focus (Tab out of grid)
   const handleGridBlur = useCallback(
     (event: React.FocusEvent) => {
       // Only clear focus if the focus is going completely outside the grid
-      if (!event.currentTarget.contains(event.relatedTarget) && !innerMode) {
-        setFocused(null);
+      if (
+        !event.currentTarget.contains(event.relatedTarget) &&
+        !gridState.isInProductCardMode
+      ) {
+        setFocusedCell(null);
       }
     },
-    [innerMode]
+    [gridState.isInProductCardMode]
   );
 
   return (
@@ -280,10 +427,22 @@ const ProductGrid: React.FC = () => {
       <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
         Product Grid
       </Typography>
+
+      {/* Announcements for screen readers */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {isLoading && "Loading more content..."}
+      </div>
+
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        Use arrow keys to navigate, Enter to access actions, Escape to exit
+        actions, Tab to exit grid
+      </div>
+
       <TableContainer component={Paper}>
         <Table
           role="grid"
           aria-label="Product Grid"
+          aria-busy={isLoading}
           onKeyDown={handleGridKeyDown}
           onFocus={handleGridFocus}
           onBlur={handleGridBlur}
@@ -295,20 +454,61 @@ const ProductGrid: React.FC = () => {
             },
           }}
         >
-          <ProductGridHeader columns={columns} />
           <TableBody role="rowgroup">
-            {rows.map((rowData: RowData, rowIdx: number) => (
-              <ProductGridRow
-                key={rowData.id}
-                rowIdx={rowIdx}
-                focused={focused || { row: -1, col: -1 }} // Provide fallback for null
-                innerMode={innerMode}
-                proxyRefs={proxyRefs.current}
-              />
-            ))}
+            {rows.map((rowData: RowData, rowIndex: number) => {
+              const isLastRow = rowIndex === rows.length - 1;
+              const isFirstRow = rowIndex === 0;
+
+              return (
+                <div key={rowData.id}>
+                  {isFirstRow && (
+                    <div
+                      ref={firstRowRef}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        visibility: "hidden",
+                      }}
+                    />
+                  )}
+                  <ProductGridRow
+                    rowIndex={rowIndex}
+                    focusedCell={focusedCell || { row: -1, col: -1 }}
+                    isInProductCardMode={isInProductCardMode}
+                    gridCellRefs={gridCellRefs.current}
+                    columnCount={columnCount}
+                  />
+                  {isLastRow && (
+                    <div
+                      ref={lastRowRef}
+                      style={{ height: "1px", visibility: "hidden" }}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Back to top button */}
+      {shouldShowBackToTop && (
+        <Button
+          data-testid="back-to-top-btn"
+          variant="contained"
+          color="primary"
+          onClick={handleBackToTop}
+          sx={{
+            position: "fixed",
+            bottom: 16,
+            right: 16,
+            zIndex: 1000,
+          }}
+          aria-label="Back to top"
+        >
+          Back to Top
+        </Button>
+      )}
     </Box>
   );
 };
